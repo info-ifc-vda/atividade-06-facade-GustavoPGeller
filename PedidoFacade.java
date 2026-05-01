@@ -1,3 +1,10 @@
+/*
+    Olá Fabio, estava olhando a entrega do git dos outros alunos como o do Vitosoaski e da Maria e parece que estou perdendo algo.
+    Aparentemente já havia um repositório padrão para basear o código mas não consegui encontrar...
+    Enfim, fiz essa "versão genérica" com o que entendi do Facade, se precisar de alguma alteração e/ou refazer o código
+    me avise que eu farei novamente!
+*/
+
 public class PedidoFacade {
 
     private Estoque estoque;
