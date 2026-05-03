@@ -1,60 +1,101 @@
-/*
-    Olá Fabio, estava olhando a entrega do git dos outros alunos como o do Vitosoaski e da Maria e parece que estou perdendo algo.
-    Aparentemente já havia um repositório padrão para basear o código mas não consegui encontrar...
-    Enfim, fiz essa "versão genérica" com o que entendi do Facade, se precisar de alguma alteração e/ou refazer o código
-    me avise que eu farei novamente!
-*/
+import modelos.Pedido;
+import modelos.ResultadoColeta;
+import modelos.ResultadoPagamento;
+import modelos.ResultadoPedido;
+import sistemas.EstoqueService;
+import sistemas.FreteService;
+import sistemas.NotificacaoService;
+import sistemas.PagamentoService;
 
-public class PedidoFacade {
+/**
+ * PedidoFacade fornece uma interface unificada e simplificada
+ * para o processo de finalização de pedidos, ocultando a
+ * complexidade dos subsistemas de Estoque, Pagamento, Frete
+ * e Notificação do código cliente.
+ */
+public class PedidoFacade
+{
+    // Os subsistemas são instanciados aqui e nunca expostos ao cliente
+    private final EstoqueService     estoque     = new EstoqueService();
+    private final PagamentoService   pagamento   = new PagamentoService();
+    private final FreteService       frete       = new FreteService();
+    private final NotificacaoService notificacao = new NotificacaoService();
 
-    private Estoque estoque;
-    private Pagamento pagamento;
-    private Frete frete;
-    private Notificacao notificacao;
-
-    public PedidoFacade() 
+    /**
+     * Orquestra todos os subsistemas para finalizar um pedido.
+     * O cliente chama apenas este método — toda a complexidade
+     * fica encapsulada na Facade.
+     */
+    public ResultadoPedido finalizarPedido(Pedido pedido) 
     {
-        this.estoque = new Estoque();
-        this.pagamento = new Pagamento();
-        this.frete = new Frete();
-        this.notificacao = new Notificacao();
-    }
-
-    // Método principal
-    public void finalizarPedido (Pedido pedido)
-    {
-
-        if (!estoque.verificarDisponibilidade(pedido.produtoId, pedido.quantidade)) 
+        boolean verificaEstoque = estoque.verificarDisponibilidade(pedido.produtoId, pedido.quantidade);
+    
+        if (!verificaEstoque) 
         {
-            notificacao.enviarFalha(pedido.email, "Produto sem estoque.");
-            return;
+            notificacao.enviarEmail(pedido.email, "Produto sem estoque!");
+            return new ResultadoPedido(false, "Produto sem estoque!");
         }
 
-        estoque.reservarProduto(pedido.produtoId, pedido.quantidade);
-
-        if (!pagamento.processarPagamento(pedido.valor)) 
+        boolean verificaCartao = pagamento.validarCartao(pedido.dadosCartao);
+        if (!verificaCartao) 
         {
-            notificacao.enviarFalha(pedido.email, "Pagamento recusado.");
-            return;
+            notificacao.enviarEmail(pedido.email, "Cartão inválido!");
+            return new ResultadoPedido(false, "Cartao invalido!");
         }
 
-        String calculaFrete = frete.calcularFrete(pedido.endereco);
-        System.out.println(calculaFrete);
-        frete.gerarEnvio(pedido.endereco);
+        ResultadoPagamento resultadoPagamento = pagamento.processarCobranca(pedido.valor, pedido.dadosCartao);
+        if (!resultadoPagamento.sucesso) 
+        {
+            notificacao.enviarEmail(pedido.email, "Pagamento recusado!");
+            return new ResultadoPedido(false, "Pagamento recusado!");
+        }
 
-        notificacao.enviarConfirmacao(pedido.email);
+        estoque.reservarItens(pedido.produtoId, pedido.quantidade);
 
-        System.out.println("Pedido finalizado com sucesso!");
+        double valorFrete = frete.calcularFrete(pedido.cep, pedido.peso);
+
+        ResultadoColeta coleta = frete.agendarColeta(pedido.cep, resultadoPagamento.transacaoId);
+
+        notificacao.enviarEmail(pedido.email, "Pedido finalizado com sucesso! Transação: " + resultadoPagamento.transacaoId);
+        notificacao.enviarSMS(pedido.telefone, "Pedido enviado com sucesso!" + resultadoPagamento.transacaoId);
+
+        ResultadoPedido resultado = new ResultadoPedido(true, "Pedido finalizado com sucesso!");
+        resultado.transacaoId = resultadoPagamento.transacaoId;
+        resultado.codigoColeta = coleta.codigo;
+        resultado.prazoEntrega  = coleta.prazo;
+
+        return resultado;
     }
 
-    public void cancelarPedido(Pedido pedido) 
+    /**
+     * Cancela um pedido já realizado, estornando o pagamento
+     * e liberando os itens reservados no estoque.
+     */
+    public ResultadoPedido cancelarPedido(String produtoId, int quantidade, String transacaoId)
     {
-        System.out.println("Cancelando pedido...");
-        notificacao.enviarFalha(pedido.email, "Pedido cancelado.");
+        System.out.println("Cancelando pedido — id " + transacaoId);
+
+        System.out.println("[Pagamento] Retornando valor! " + transacaoId);
+
+        System.out.println("[Estoque] Repondo " + quantidade + " unidades do produto " + produtoId);
+
+        System.out.println("[Notificacao] Notificando cliente sobre cancelamento");
+
+        ResultadoPedido resultado = new ResultadoPedido(false, "Pedido cancelado");
+        resultado.transacaoId = transacaoId;
+        resultado.codigoColeta = "";
+        resultado.prazoEntrega = "";
+        return resultado;
     }
 
-    public void consultarStatus(Pedido pedido)
+    /**
+     * Retorna um resumo de status do pedido sem expor detalhes internos.
+     */
+    public String consultarStatus(String transacaoId)
     {
-        System.out.println("Processando o pedido com ID: "+pedido.produtoId);
+        return "Status do pedido: " + transacaoId + " | Processado!";
     }
+    
 }
+
+
